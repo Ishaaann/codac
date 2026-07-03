@@ -1,0 +1,31 @@
+{
+  "name": "codac",
+  "version": "1.0.0",
+  "description": "Collaborative code editor",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ishaaann/codac.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Ishaaann/codac/issues"
+  },
+  "homepage": "https://github.com/Ishaaann/codac#readme",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "redis": "^6.1.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
