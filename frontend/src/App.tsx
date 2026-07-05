@@ -10,8 +10,12 @@ const CodeEditor = () => {
   const editorRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const handleEditorDidMount = (editor: any) => {
+  // We add 'monaco' as the second parameter to access the editor's core enums
+  const handleEditorDidMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
+
+    // 🚨 THE FIX: Force standard Line Feeds (\n) to prevent CRDT Index Drift on Windows
+    editor.getModel().setEOL(monaco.editor.EndOfLineSequence.LF);
 
     const doc = new Y.Doc();
     const type = doc.getText('monaco');
@@ -21,37 +25,40 @@ const CodeEditor = () => {
     const ws = new WebSocket(`ws://localhost:8000/room/${id}`);
     wsRef.current = ws;
 
-    // INCOMING: Safely decode the stringified text back into a raw binary buffer
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'request_sync' }));
+    };
+
     ws.onmessage = async (event) => {
       try {
-        let textData;
-        
-        // Handle whatever format the browser hands us (Blob, String, or ArrayBuffer)
-        if (event.data instanceof Blob) {
-          textData = await event.data.text();
-        } else if (typeof event.data === 'string') {
-          textData = event.data;
-        } else {
-          const decoder = new TextDecoder('utf-8');
-          textData = decoder.decode(event.data);
-        }
+        let textData = event.data instanceof Blob ? await event.data.text() :
+                       typeof event.data === 'string' ? event.data :
+                       new TextDecoder('utf-8').decode(event.data);
 
-        // Parse the JSON array and feed the exact bytes back into Yjs
-        const updateArray = JSON.parse(textData);
-        const buffer = new Uint8Array(updateArray);
-        Y.applyUpdate(doc, buffer, 'network');
+        const payload = JSON.parse(textData);
+
+        if (payload.type === 'request_sync') {
+          const state = Y.encodeStateAsUpdate(doc);
+          ws.send(JSON.stringify({
+            type: 'full_sync',
+            data: Array.from(state)
+          }));
+        } 
+        else if (payload.type === 'full_sync' || payload.type === 'update') {
+          const buffer = new Uint8Array(payload.data);
+          Y.applyUpdate(doc, buffer, 'network');
+        }
       } catch (error) {
         console.error('Error applying Yjs update:', error);
       }
     };
 
-    // OUTGOING: Serialize the full document state to a JSON array to bypass binary corruption
     doc.on('update', (update, origin) => {
       if (origin !== 'network' && ws.readyState === WebSocket.OPEN) {
-        // Send the FULL state to guarantee no missing history errors for late joiners
-        const fullState = Y.encodeStateAsUpdate(doc);
-        const updateArray = Array.from(fullState);
-        ws.send(JSON.stringify(updateArray));
+        ws.send(JSON.stringify({
+          type: 'update',
+          data: Array.from(update)
+        }));
       }
     });
   };
