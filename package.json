@@ -24,7 +24,9 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "redis": "^6.1.0",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.31"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
