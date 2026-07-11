@@ -1,5 +1,5 @@
 import { createClient } from 'redis';
-import { localRooms } from './wss.js';
+import { activeRooms } from './wss.js';
 
 
 const pubClient = createClient({ url: 'redis://localhost:6379' });
@@ -27,9 +27,9 @@ export async function subscribeToRoom(roomId) {
     await subClient.subscribe(channelName, (message) =>{
         const senderId = JSON.parse(message).senderId;
         const data = JSON.parse(message).message;
-        const clients = localRooms.get(roomId);
-        if(clients){ 
-            clients.forEach((ws) => {
+        const room = activeRooms.get(roomId);
+        if(room && room.clients){ 
+            room.clients.forEach((ws) => {
                 if (ws.id !== senderId && ws.readyState === 1) {
                     ws.send(data);
                 }
