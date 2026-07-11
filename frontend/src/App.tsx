@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-
 import Editor from '@monaco-editor/react';
 import * as Y from 'yjs';
 import { MonacoBinding } from 'y-monaco';
+import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate } from 'y-protocols/awareness';
 import { v4 as uuidv4 } from 'uuid';
 
 const CodeEditor = () => {
@@ -10,8 +11,7 @@ const CodeEditor = () => {
   const editorRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   
-  // New state to handle the live terminal output
-  const [output, setOutput] = useState<string>('> Ready... Waiting for execution.');
+  const [output, setOutput] = useState<string>('> Waiting for execution.');
 
   const handleEditorDidMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
@@ -20,7 +20,20 @@ const CodeEditor = () => {
     const doc = new Y.Doc();
     const type = doc.getText('monaco');
     
-    new MonacoBinding(type, editor.getModel(), new Set([editor]));
+    // 1. Re-Initialize the Awareness protocol
+    const awareness = new Awareness(doc);
+
+    // Assign a random neon color and ID to the local user
+    const cursorColors = ['#FF0055', '#00FF66', '#0099FF', '#FF9900', '#CC00FF', '#00FFFF'];
+    const randomColor = cursorColors[Math.floor(Math.random() * cursorColors.length)];
+    
+    awareness.setLocalStateField('user', {
+      name: `Dev-${Math.floor(Math.random() * 1000)}`,
+      color: randomColor
+    });
+
+    // 2. Bind Monaco, Yjs, AND the Awareness protocol together
+    new MonacoBinding(type, editor.getModel(), new Set([editor]), awareness);
 
     const ws = new WebSocket(`ws://localhost:8000/room/${id}`);
     wsRef.current = ws;
@@ -45,7 +58,11 @@ const CodeEditor = () => {
           const buffer = new Uint8Array(payload.data);
           Y.applyUpdate(doc, buffer, 'network');
         }
-        // Handle incoming execution results from the backend
+        // 3. 🚨 RESTORED: Handle incoming cursor movements
+        else if (payload.type === 'awareness') {
+          const buffer = new Uint8Array(payload.data);
+          applyAwarenessUpdate(awareness, buffer, 'network');
+        }
         else if (payload.type === 'execution_result') {
           setOutput(`> Output:\n${payload.data}`);
         }
@@ -59,6 +76,18 @@ const CodeEditor = () => {
         ws.send(JSON.stringify({ type: 'update', data: Array.from(update) }));
       }
     });
+
+    // 4. 🚨 RESTORED: Broadcast outgoing cursor movements
+    awareness.on('update', ({ added, updated, removed }, origin) => {
+      if (origin !== 'network' && ws.readyState === WebSocket.OPEN) {
+        const changedClients = added.concat(updated, removed);
+        const awarenessUpdate = encodeAwarenessUpdate(awareness, changedClients);
+        ws.send(JSON.stringify({
+          type: 'awareness',
+          data: Array.from(awarenessUpdate)
+        }));
+      }
+    });
   };
 
   useEffect(() => {
@@ -67,7 +96,6 @@ const CodeEditor = () => {
     };
   }, []);
 
-  // Grabs the exact current text from Monaco and requests execution
   const executeCode = () => {
     if (wsRef.current && editorRef.current) {
       setOutput('> Compiling and running code remotely...');
@@ -82,6 +110,13 @@ const CodeEditor = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: '#1e1e1e' }}>
       
+      {/* 5. 🚨 RESTORED: CSS for the remote cursor nametags */}
+      <style>{`
+        .yRemoteSelection { background-color: rgba(250, 129, 0, 0.2); }
+        .yRemoteSelectionHead { position: absolute; border-left: 2px solid orange; border-top: 2px solid orange; bottom: 0px; height: 100%; box-sizing: border-box; }
+        .yRemoteSelectionHead::after { position: absolute; content: ' '; border: 3px solid orange; border-radius: 4px; left: -4px; top: -5px; }
+      `}</style>
+
       {/* Top Header Bar */}
       <div style={{ padding: '10px 20px', backgroundColor: '#252526', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333' }}>
         <h2 style={{ margin: 0, color: '#ccc', fontSize: '16px', fontFamily: 'monospace' }}>Codac / {id}</h2>
@@ -93,7 +128,7 @@ const CodeEditor = () => {
         </button>
       </div>
 
-      {/* Main Editor Pane (Takes up remaining space) */}
+      {/* Main Editor Pane */}
       <div style={{ flexGrow: 1, position: 'relative' }}>
         <Editor
           height="100%"
@@ -106,8 +141,10 @@ const CodeEditor = () => {
 
       {/* Bottom Terminal Pane */}
       <div style={{ height: '250px', backgroundColor: '#1e1e1e', borderTop: '1px solid #333', padding: '10px' }}>
-        <div style={{ color: '#858585', fontSize: '12px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>Terminal Output</div>
-        <pre style={{ margin: 0, color: '#4af626', fontFamily: 'monospace', fontSize: '14px', whiteSpace: 'pre-wrap', overflowY: 'auto', height: 'calc(100% - 25px)' }}>
+        <div style={{ color: '#858585', fontSize: '12px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>
+          Terminal Output
+        </div>
+        <pre style={{ margin: 0, color: '#4af626', fontFamily: 'monospace', fontSize: '14px', whiteSpace: 'pre-wrap', overflowY: 'auto', height: 'calc(100% - 25px)', textAlign: 'left' }}>
           {output}
         </pre>
       </div>
